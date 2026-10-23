@@ -1,0 +1,634 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>세상에 나쁜 고물은 없다 - 세.나.고 자랑대회</title>
+  <!-- React 및 Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Jua&family=Noto+Sans+KR:wght@400;700;900&display=swap');
+    body {
+      font-family: 'Noto Sans KR', sans-serif;
+      background-color: #f7fee7;
+    }
+    .font-jua {
+      font-family: 'Jua', sans-serif;
+    }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+
+  <script type="text/babel">
+    const { useState, useEffect, useRef } = React;
+
+    const TEACHER_PASSWORD = "1234";
+
+    function App() {
+      const [currentClass, setCurrentClass] = useState(1);
+      const [viewMode, setViewMode] = useState('student'); // 'student' | 'teacher_login' | 'teacher'
+      const [studentStep, setStudentStep] = useState(1);
+      const [teacherAuthed, setTeacherAuthed] = useState(false);
+      const [passwordInput, setPasswordInput] = useState('');
+      const [pwError, setPwError] = useState('');
+
+      // 반별 데이터 (1~13반 지원)
+      const [classItems, setClassItems] = useState(() => {
+        const saved = localStorage.getItem('senago_class_items');
+        if (saved) {
+          try { return JSON.parse(saved); } catch (e) {}
+        }
+        const initial = {};
+        for (let i = 1; i <= 13; i++) initial[i] = [];
+        return initial;
+      });
+
+      const [classVotes, setClassVotes] = useState(() => {
+        const saved = localStorage.getItem('senago_class_votes');
+        if (saved) {
+          try { return JSON.parse(saved); } catch (e) {}
+        }
+        const initial = {};
+        for (let i = 1; i <= 13; i++) {
+          initial[i] = { sendAway: {}, mysterious: {}, cute: {} };
+        }
+        return initial;
+      });
+
+      const [myVotes, setMyVotes] = useState({
+        sendAway: [],
+        mysterious: [],
+        cute: []
+      });
+
+      const [studentName, setStudentName] = useState('');
+      const [itemName, setItemName] = useState('');
+      const [oneLine, setOneLine] = useState('');
+      const [imagePreview, setImagePreview] = useState(null);
+      const [w5h1, setW5h1] = useState({
+        who: '', when: '', where: '', what: '', why: '', how: ''
+      });
+
+      const captureRef = useRef(null);
+
+      useEffect(() => {
+        localStorage.setItem('senago_class_items', JSON.stringify(classItems));
+      }, [classItems]);
+
+      useEffect(() => {
+        localStorage.setItem('senago_class_votes', JSON.stringify(classVotes));
+      }, [classVotes]);
+
+      const handleImageUpload = (e) => {
+        const file = e.target.files[0];
+        if (file) {
+          const reader = new FileReader();
+          reader.onloadend = () => setImagePreview(reader.result);
+          reader.readAsDataURL(file);
+        }
+      };
+
+      const handleSubmit = (e) => {
+        e.preventDefault();
+        if (!studentName.trim() || !itemName.trim() || !oneLine.trim()) {
+          alert('이름, 고물 이름, 한 줄 소개는 필수 입력 항목입니다!');
+          return;
+        }
+
+        const newItem = {
+          id: Date.now(),
+          studentName: studentName.trim(),
+          itemName: itemName.trim(),
+          oneLine: oneLine.trim(),
+          image: imagePreview || 'https://via.placeholder.com/300?text=No+Image',
+          w5h1: { ...w5h1 }
+        };
+
+        setClassItems(prev => ({
+          ...prev,
+          [currentClass]: [newItem, ...(prev[currentClass] || [])]
+        }));
+
+        setStudentName('');
+        setItemName('');
+        setOneLine('');
+        setImagePreview(null);
+        setW5h1({ who: '', when: '', where: '', what: '', why: '', how: '' });
+        setStudentStep(2);
+      };
+
+      const handleVoteToggle = (awardType, itemId) => {
+        const otherCategories = ['sendAway', 'mysterious', 'cute'].filter(c => c !== awardType);
+        const isUsedInOther = otherCategories.some(cat => myVotes[cat].includes(itemId));
+
+        if (isUsedInOther) {
+          alert('⚠️ 한 물건은 한 종류의 상에만 투표할 수 있습니다!');
+          return;
+        }
+
+        const currentSelected = myVotes[awardType];
+        const isSelected = currentSelected.includes(itemId);
+
+        let newSelected = [];
+        if (isSelected) {
+          newSelected = currentSelected.filter(id => id !== itemId);
+        } else {
+          if (currentSelected.length >= 3) {
+            alert('이 부문은 이미 3명을 모두 선택하셨습니다!');
+            return;
+          }
+          newSelected = [...currentSelected, itemId];
+        }
+
+        setMyVotes(prev => ({ ...prev, [awardType]: newSelected }));
+
+        setClassVotes(prev => {
+          const classData = prev[currentClass] || { sendAway: {}, mysterious: {}, cute: {} };
+          const categoryData = { ...(classData[awardType] || {}) };
+          categoryData[itemId] = (categoryData[itemId] || 0) + (isSelected ? -1 : 1);
+          if (categoryData[itemId] < 0) categoryData[itemId] = 0;
+
+          return {
+            ...prev,
+            [currentClass]: {
+              ...classData,
+              [awardType]: categoryData
+            }
+          };
+        });
+      };
+
+      const handleTeacherLogin = (e) => {
+        e.preventDefault();
+        if (passwordInput === TEACHER_PASSWORD) {
+          setTeacherAuthed(true);
+          setViewMode('teacher');
+          setPwError('');
+          setPasswordInput('');
+        } else {
+          setPwError('비밀번호가 올바르지 않습니다.');
+        }
+      };
+
+      // 교사 전용 초기화 기능
+      const handleResetClass = () => {
+        if (confirm(`⚠️ 경고: ${currentClass}반의 모든 등록 데이터와 투표 내역이 삭제됩니다. 정말 초기화하시겠습니까?`)) {
+          setClassItems(prev => ({ ...prev, [currentClass]: [] }));
+          setClassVotes(prev => ({
+            ...prev,
+            [currentClass]: { sendAway: {}, mysterious: {}, cute: {} }
+          }));
+          setMyVotes({ sendAway: [], mysterious: [], cute: [] });
+          alert(`${currentClass}반 데이터가 깔끔하게 초기화되었습니다.`);
+        }
+      };
+
+      const handleDownloadImage = () => {
+        if (!captureRef.current) return;
+        html2canvas(captureRef.current, { scale: 2 }).then(canvas => {
+          const link = document.createElement('a');
+          link.download = `세나고_${currentClass}반_결과.png`;
+          link.href = canvas.toDataURL('image/png');
+          link.click();
+        });
+      };
+
+      const getWinners = (awardType) => {
+        const items = classItems[currentClass] || [];
+        const votes = (classVotes[currentClass] && classVotes[currentClass][awardType]) || {};
+
+        const itemsWithVotes = items.map(item => ({
+          ...item,
+          voteCount: votes[item.id] || 0
+        }));
+
+        itemsWithVotes.sort((a, b) => b.voteCount - a.voteCount);
+        return itemsWithVotes.slice(0, 3);
+      };
+
+      const items = classItems[currentClass] || [];
+
+      return (
+        <div className="min-h-screen pb-12">
+          {/* 상단 헤더 영역 */}
+          <header className="bg-amber-100 border-b-2 border-amber-300 p-4 sticky top-0 z-50 shadow-md">
+            <div className="max-w-6xl mx-auto flex flex-wrap justify-between items-center gap-4">
+              <div className="flex items-center gap-3">
+                <span className="text-3xl">🧸</span>
+                <h1 className="text-2xl font-black font-jua text-amber-900">
+                  세상에 나쁜 고물은 없다 (세.나.고)
+                </h1>
+              </div>
+
+              {/* 반 선택 버튼 (1반~13반) */}
+              <div className="flex items-center gap-1 bg-white p-1 rounded-lg border border-amber-300 overflow-x-auto max-w-full">
+                <span className="font-bold text-xs text-amber-800 px-2 whitespace-nowrap">학급:</span>
+                {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13].map(num => (
+                  <button
+                    key={num}
+                    onClick={() => {
+                      setCurrentClass(num);
+                      setMyVotes({ sendAway: [], mysterious: [], cute: [] });
+                    }}
+                    className={`px-2 py-1 text-xs rounded-md font-bold transition whitespace-nowrap ${
+                      currentClass === num
+                        ? 'bg-amber-500 text-white shadow'
+                        : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                    }`}
+                  >
+                    {num}반
+                  </button>
+                ))}
+              </div>
+
+              {/* 선생님 버튼 (초기화 버튼은 학생 화면에서 삭제됨!) */}
+              <div className="flex items-center gap-2">
+                {viewMode === 'student' ? (
+                  <button
+                    onClick={() => setViewMode('teacher_login')}
+                    className="bg-purple-600 hover:bg-purple-700 text-white font-bold text-xs px-3 py-2 rounded-lg shadow flex items-center gap-1 transition"
+                  >
+                    🔒 교사 시상식 페이지
+                  </button>
+                ) : (
+                  <button
+                    onClick={() => {
+                      setViewMode('student');
+                      setTeacherAuthed(false);
+                    }}
+                    className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs px-3 py-2 rounded-lg shadow flex items-center gap-1 transition"
+                  >
+                    🙋 학생 화면으로 돌아가기
+                  </button>
+                )}
+              </div>
+            </div>
+          </header>
+
+          <main className="max-w-6xl mx-auto p-4 mt-4">
+            {/* 교사 로그인 화면 */}
+            {viewMode === 'teacher_login' && !teacherAuthed && (
+              <div className="max-w-md mx-auto bg-white p-8 rounded-2xl shadow-xl border-2 border-purple-200 mt-12 text-center">
+                <div className="text-5xl mb-4">🔐</div>
+                <h2 className="text-2xl font-bold font-jua text-purple-900 mb-2">교사 시상식 페이지 로그인</h2>
+                <p className="text-sm text-gray-500 mb-6">학생들에게 시상 결과를 공개하기 전 로그인해 주세요.</p>
+                <form onSubmit={handleTeacherLogin} className="space-y-4">
+                  <input
+                    type="password"
+                    placeholder="비밀번호 입력"
+                    value={passwordInput}
+                    onChange={(e) => setPasswordInput(e.target.value)}
+                    className="w-full p-3 border-2 border-purple-200 rounded-xl text-center text-lg focus:outline-none focus:border-purple-500"
+                  />
+                  {pwError && <p className="text-red-500 text-xs font-bold">{pwError}</p>}
+                  <button
+                    type="submit"
+                    className="w-full bg-purple-600 hover:bg-purple-700 text-white font-bold py-3 rounded-xl shadow-lg transition"
+                  >
+                    시상식 페이지 열기
+                  </button>
+                </form>
+              </div>
+            )}
+
+            {/* 교사 시상식 페이지 (초기화 버튼은 여기에만 위치!) */}
+            {viewMode === 'teacher' && teacherAuthed && (
+              <div>
+                <div className="flex justify-between items-center mb-6 bg-white p-4 rounded-xl shadow border">
+                  <div>
+                    <h2 className="text-xl font-black font-jua text-purple-900">
+                      🏆 {currentClass}반 시상식 결과 (교사 전용)
+                    </h2>
+                  </div>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={handleDownloadImage}
+                      className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-sm px-4 py-2 rounded-lg shadow transition"
+                    >
+                      📸 이미지 저장
+                    </button>
+                    <button
+                      onClick={handleResetClass}
+                      className="bg-rose-500 hover:bg-rose-600 text-white font-bold text-sm px-3 py-2 rounded-lg shadow transition"
+                    >
+                      🗑️ {currentClass}반 데이터 초기화
+                    </button>
+                  </div>
+                </div>
+
+                <div ref={captureRef} className="bg-amber-50 p-6 rounded-2xl border-4 border-amber-200 space-y-8 shadow-inner">
+                  <div className="text-center my-4">
+                    <h1 className="text-4xl font-black font-jua text-amber-900 mb-2">
+                      🎉 {currentClass}반 세상에 나쁜 고물은 없다 시상식 🎉
+                    </h1>
+                    <p className="text-gray-600 text-sm">지속가능한 사회 만들기 - 나의 소중한 자원 자랑대회</p>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                    <AwardPodium
+                      title="이제..보내주상 🍂"
+                      desc="가장 오랫동안 사용해 보낸 줄 때가 된 고물"
+                      color="bg-amber-100 border-amber-400 text-amber-900"
+                      winners={getWinners('sendAway')}
+                    />
+                    <AwardPodium
+                      title="기묘하상 🤡"
+                      desc="독특하고 신기한 이야기나 형태를 가진 고물"
+                      color="bg-purple-100 border-purple-400 text-purple-900"
+                      winners={getWinners('mysterious')}
+                    />
+                    <AwardPodium
+                      title="귀엽상 🧸"
+                      desc="여전히 사랑스럽고 애정이 가득 담긴 고물"
+                      color="bg-pink-100 border-pink-400 text-pink-900"
+                      winners={getWinners('cute')}
+                    />
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* 학생 페이지 */}
+            {viewMode === 'student' && (
+              <div>
+                <div className="flex border-b-2 border-amber-200 mb-6 bg-white rounded-t-xl overflow-hidden shadow-sm">
+                  <button
+                    onClick={() => setStudentStep(1)}
+                    className={`flex-1 py-3 text-center font-bold text-sm transition ${
+                      studentStep === 1
+                        ? 'bg-amber-500 text-white shadow-inner font-jua text-base'
+                        : 'text-gray-600 hover:bg-amber-50'
+                    }`}
+                  >
+                    1단계: 내 고물 등록하기 📝
+                  </button>
+                  <button
+                    onClick={() => setStudentStep(2)}
+                    className={`flex-1 py-3 text-center font-bold text-sm transition ${
+                      studentStep === 2
+                        ? 'bg-amber-500 text-white shadow-inner font-jua text-base'
+                        : 'text-gray-600 hover:bg-amber-50'
+                    }`}
+                  >
+                    2단계: 친구들 고물 구경 & 투표하기 🗳️ ({items.length}개)
+                  </button>
+                </div>
+
+                {/* 1단계: 등록 */}
+                {studentStep === 1 && (
+                  <div className="bg-white p-6 rounded-2xl shadow-md border border-amber-200 max-w-2xl mx-auto">
+                    <h2 className="text-2xl font-black font-jua text-amber-900 mb-4 text-center">
+                      ✨ 나의 소중한 고물 자랑글 작성하기
+                    </h2>
+                    <form onSubmit={handleSubmit} className="space-y-6">
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                          <label className="block text-sm font-bold text-gray-700 mb-1">
+                            학생 이름 <span className="text-red-500">*</span>
+                          </label>
+                          <input
+                            type="text"
+                            placeholder="예: 홍길동"
+                            value={studentName}
+                            onChange={(e) => setStudentName(e.target.value)}
+                            className="w-full p-2.5 border rounded-lg focus:ring-2 focus:ring-amber-400 focus:outline-none"
+                            required
+                          />
+                        </div>
+
+                        <div>
+                          <label className="block text-sm font-bold text-gray-700 mb-1">
+                            고물 이름 <span className="text-red-500">*</span>
+                          </label>
+                          <input
+                            type="text"
+                            placeholder="예: 5년 쓴 곰돌이 필통"
+                            value={itemName}
+                            onChange={(e) => setItemName(e.target.value)}
+                            className="w-full p-2.5 border rounded-lg focus:ring-2 focus:ring-amber-400 focus:outline-none"
+                            required
+                          />
+                        </div>
+                      </div>
+
+                      <div>
+                        <label className="block text-sm font-bold text-gray-700 mb-1">
+                          한 줄 자랑/소개 <span className="text-red-500">*</span>
+                        </label>
+                        <input
+                          type="text"
+                          placeholder="예: 지퍼가 고장 났지만 제일 아끼는 필통입니다!"
+                          value={oneLine}
+                          onChange={(e) => setOneLine(e.target.value)}
+                          className="w-full p-2.5 border rounded-lg focus:ring-2 focus:ring-amber-400 focus:outline-none"
+                          required
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-sm font-bold text-gray-700 mb-1">고물 사진 등록</label>
+                        <input
+                          type="file"
+                          accept="image/*"
+                          onChange={handleImageUpload}
+                          className="w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-semibold file:bg-amber-100 file:text-amber-700 hover:file:bg-amber-200"
+                        />
+                        {imagePreview && (
+                          <div className="mt-3 text-center">
+                            <img src={imagePreview} alt="미리보기" className="h-40 mx-auto rounded-lg object-cover border" />
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="bg-amber-50 p-4 rounded-xl border border-amber-200 space-y-3">
+                        <h3 className="font-bold text-amber-900 text-sm flex items-center gap-1">
+                          🎤 발표 준비 (6하원칙 작성하기)
+                        </h3>
+                        <div className="grid grid-cols-2 gap-3 text-xs">
+                          <div>
+                            <span className="font-semibold text-gray-600">언제부터?</span>
+                            <input
+                              type="text"
+                              placeholder="예: 초등 3학년 때부터"
+                              value={w5h1.when}
+                              onChange={(e) => setW5h1({ ...w5h1, when: e.target.value })}
+                              className="w-full p-1.5 border rounded mt-1"
+                            />
+                          </div>
+                          <div>
+                            <span className="font-semibold text-gray-600">어떻게 쓰고 있나?</span>
+                            <input
+                              type="text"
+                              placeholder="예: 테이프로 붙여서 씀"
+                              value={w5h1.how}
+                              onChange={(e) => setW5h1({ ...w5h1, how: e.target.value })}
+                              className="w-full p-1.5 border rounded mt-1"
+                            />
+                          </div>
+                        </div>
+                      </div>
+
+                      <button
+                        type="submit"
+                        className="w-full bg-amber-500 hover:bg-amber-600 text-white font-bold py-3 rounded-xl shadow-md font-jua text-lg transition"
+                      >
+                        자랑 목록에 등록하기 🚀
+                      </button>
+                    </form>
+                  </div>
+                )}
+
+                {/* 2단계: 목록 및 투표 */}
+                {studentStep === 2 && (
+                  <div>
+                    <div className="bg-amber-100 border border-amber-300 p-4 rounded-xl mb-6 flex flex-wrap justify-between items-center gap-3">
+                      <div>
+                        <h3 className="font-bold text-amber-900 text-sm font-jua">
+                          🗳️ {currentClass}반 투표 현황 안내
+                        </h3>
+                        <p className="text-xs text-amber-800">
+                          각 부문당 3명씩(총 9개) 투표할 수 있습니다. 이미 선택한 물건은 다른 상에 중복 투표할 수 없습니다.
+                        </p>
+                      </div>
+                      <div className="flex gap-2 text-xs">
+                        <span className="bg-amber-200 text-amber-900 px-2 py-1 rounded font-bold">
+                          🍂 보내주상: {myVotes.sendAway.length}/3
+                        </span>
+                        <span className="bg-purple-200 text-purple-900 px-2 py-1 rounded font-bold">
+                          🤡 기묘하상: {myVotes.mysterious.length}/3
+                        </span>
+                        <span className="bg-pink-200 text-pink-900 px-2 py-1 rounded font-bold">
+                          🧸 귀엽상: {myVotes.cute.length}/3
+                        </span>
+                      </div>
+                    </div>
+
+                    {items.length === 0 ? (
+                      <div className="bg-white p-12 text-center rounded-2xl shadow-sm border border-dashed border-gray-300">
+                        <p className="text-4xl mb-2">📦</p>
+                        <p className="text-gray-500 font-bold">아직 등록된 고물이 없습니다.</p>
+                      </div>
+                    ) : (
+                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                        {items.map(item => {
+                          const isSendAway = myVotes.sendAway.includes(item.id);
+                          const isMysterious = myVotes.mysterious.includes(item.id);
+                          const isCute = myVotes.cute.includes(item.id);
+
+                          return (
+                            <div key={item.id} className="bg-white rounded-2xl shadow-md border overflow-hidden flex flex-col justify-between">
+                              <div>
+                                <div className="h-48 bg-gray-100 relative">
+                                  <img src={item.image} alt={item.itemName} className="w-full h-full object-cover" />
+                                  <span className="absolute top-2 right-2 bg-black/60 text-white text-xs px-2 py-1 rounded-full font-bold">
+                                    발표자: {item.studentName}
+                                  </span>
+                                </div>
+                                <div className="p-4">
+                                  <h3 className="text-lg font-bold font-jua text-gray-800 mb-1">{item.itemName}</h3>
+                                  <p className="text-xs text-amber-800 bg-amber-50 p-2 rounded-lg border border-amber-100 mb-3">
+                                    "{item.oneLine}"
+                                  </p>
+
+                                  {(item.w5h1.when || item.w5h1.how) && (
+                                    <div className="text-xs text-gray-500 space-y-0.5 border-t pt-2">
+                                      {item.w5h1.when && <p>• 언제: {item.w5h1.when}</p>}
+                                      {item.w5h1.how && <p>• 어떻게: {item.w5h1.how}</p>}
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+
+                              <div className="p-3 bg-gray-50 border-t space-y-1.5">
+                                <div className="grid grid-cols-3 gap-1">
+                                  <button
+                                    onClick={() => handleVoteToggle('sendAway', item.id)}
+                                    className={`py-1.5 px-1 text-xs font-bold rounded border transition ${
+                                      isSendAway
+                                        ? 'bg-amber-500 text-white border-amber-600'
+                                        : 'bg-white text-amber-800 border-amber-300'
+                                    }`}
+                                  >
+                                    🍂 보내주상
+                                  </button>
+                                  <button
+                                    onClick={() => handleVoteToggle('mysterious', item.id)}
+                                    className={`py-1.5 px-1 text-xs font-bold rounded border transition ${
+                                      isMysterious
+                                        ? 'bg-purple-600 text-white border-purple-700'
+                                        : 'bg-white text-purple-800 border-purple-300'
+                                    }`}
+                                  >
+                                    🤡 기묘하상
+                                  </button>
+                                  <button
+                                    onClick={() => handleVoteToggle('cute', item.id)}
+                                    className={`py-1.5 px-1 text-xs font-bold rounded border transition ${
+                                      isCute
+                                        ? 'bg-pink-500 text-white border-pink-600'
+                                        : 'bg-white text-pink-800 border-pink-300'
+                                    }`}
+                                  >
+                                    🧸 귀엽상
+                                  </button>
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+          </main>
+        </div>
+      );
+    }
+
+    function AwardPodium({ title, desc, color, winners }) {
+      return (
+        <div className={`p-5 rounded-2xl border-2 ${color} shadow-sm flex flex-col justify-between`}>
+          <div>
+            <h3 className="text-xl font-black font-jua text-center mb-1">{title}</h3>
+            <p className="text-xs text-center text-gray-600 mb-4">{desc}</p>
+
+            {winners.length === 0 || winners[0].voteCount === 0 ? (
+              <div className="text-center py-8 text-xs text-gray-400">투표 내역이 없습니다.</div>
+            ) : (
+              <div className="space-y-3">
+                {winners.map((item, index) => (
+                  <div key={item.id} className="bg-white p-3 rounded-xl shadow-sm border flex items-center gap-3">
+                    <span className={`text-lg font-black font-jua px-2.5 py-1 rounded-full ${
+                      index === 0 ? 'bg-amber-400 text-white' : index === 1 ? 'bg-gray-300 text-gray-700' : 'bg-amber-700 text-white'
+                    }`}>
+                      {index + 1}위
+                    </span>
+                    <img src={item.image} alt={item.itemName} className="w-12 h-12 rounded-lg object-cover" />
+                    <div className="flex-1 min-w-0">
+                      <p className="font-bold text-sm text-gray-900 truncate">{item.itemName}</p>
+                      <p className="text-xs text-gray-500">학생: {item.studentName}</p>
+                    </div>
+                    <span className="text-xs font-black bg-amber-50 text-amber-800 px-2 py-1 rounded border border-amber-200">
+                      {item.voteCount}표
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      );
+    }
+
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<App />);
+  </script>
+</body>
+</html>
