@@ -31,13 +31,22 @@
 
     function App() {
       const [currentClass, setCurrentClass] = useState(1);
-      const [viewMode, setViewMode] = useState('student'); // 'student' | 'teacher_login' | 'teacher'
+      const [viewMode, setViewMode] = useState('student');
       const [studentStep, setStudentStep] = useState(1);
       const [teacherAuthed, setTeacherAuthed] = useState(false);
       const [passwordInput, setPasswordInput] = useState('');
       const [pwError, setPwError] = useState('');
 
-      // 반별 데이터 (1~13반 지원)
+      const [myCreatedItemIds, setMyCreatedItemIds] = useState(() => {
+        const saved = localStorage.getItem('senago_my_item_ids');
+        if (saved) {
+          try { return JSON.parse(saved); } catch (e) {}
+        }
+        return [];
+      });
+
+      const [editingId, setEditingId] = useState(null);
+
       const [classItems, setClassItems] = useState(() => {
         const saved = localStorage.getItem('senago_class_items');
         if (saved) {
@@ -84,6 +93,10 @@
         localStorage.setItem('senago_class_votes', JSON.stringify(classVotes));
       }, [classVotes]);
 
+      useEffect(() => {
+        localStorage.setItem('senago_my_item_ids', JSON.stringify(myCreatedItemIds));
+      }, [myCreatedItemIds]);
+
       const handleImageUpload = (e) => {
         const file = e.target.files[0];
         if (file) {
@@ -93,6 +106,15 @@
         }
       };
 
+      const resetForm = () => {
+        setStudentName('');
+        setItemName('');
+        setOneLine('');
+        setImagePreview(null);
+        setW5h1({ who: '', when: '', where: '', what: '', why: '', how: '' });
+        setEditingId(null);
+      };
+
       const handleSubmit = (e) => {
         e.preventDefault();
         if (!studentName.trim() || !itemName.trim() || !oneLine.trim()) {
@@ -100,26 +122,64 @@
           return;
         }
 
-        const newItem = {
-          id: Date.now(),
-          studentName: studentName.trim(),
-          itemName: itemName.trim(),
-          oneLine: oneLine.trim(),
-          image: imagePreview || 'https://via.placeholder.com/300?text=No+Image',
-          w5h1: { ...w5h1 }
-        };
+        if (editingId) {
+          setClassItems(prev => ({
+            ...prev,
+            [currentClass]: (prev[currentClass] || []).map(item => 
+              item.id === editingId
+                ? {
+                    ...item,
+                    studentName: studentName.trim(),
+                    itemName: itemName.trim(),
+                    oneLine: oneLine.trim(),
+                    image: imagePreview || item.image,
+                    w5h1: { ...w5h1 }
+                  }
+                : item
+            )
+          }));
+          alert('성공적으로 수정되었습니다!');
+        } else {
+          const newId = Date.now();
+          const newItem = {
+            id: newId,
+            studentName: studentName.trim(),
+            itemName: itemName.trim(),
+            oneLine: oneLine.trim(),
+            image: imagePreview || 'https://via.placeholder.com/300?text=No+Image',
+            w5h1: { ...w5h1 }
+          };
 
-        setClassItems(prev => ({
-          ...prev,
-          [currentClass]: [newItem, ...(prev[currentClass] || [])]
-        }));
+          setClassItems(prev => ({
+            ...prev,
+            [currentClass]: [newItem, ...(prev[currentClass] || [])]
+          }));
 
-        setStudentName('');
-        setItemName('');
-        setOneLine('');
-        setImagePreview(null);
-        setW5h1({ who: '', when: '', where: '', what: '', why: '', how: '' });
+          setMyCreatedItemIds(prev => [...prev, newId]);
+        }
+
+        resetForm();
         setStudentStep(2);
+      };
+
+      const handleEditStart = (item) => {
+        setEditingId(item.id);
+        setStudentName(item.studentName);
+        setItemName(item.itemName);
+        setOneLine(item.oneLine);
+        setImagePreview(item.image);
+        setW5h1(item.w5h1 || { who: '', when: '', where: '', what: '', why: '', how: '' });
+        setStudentStep(1);
+      };
+
+      const handleDeleteItem = (itemId) => {
+        if (confirm('정말로 이 고물 등록글을 삭제하시겠습니까?')) {
+          setClassItems(prev => ({
+            ...prev,
+            [currentClass]: (prev[currentClass] || []).filter(item => item.id !== itemId)
+          }));
+          setMyCreatedItemIds(prev => prev.filter(id => id !== itemId));
+        }
       };
 
       const handleVoteToggle = (awardType, itemId) => {
@@ -175,7 +235,6 @@
         }
       };
 
-      // 교사 전용 초기화 기능
       const handleResetClass = () => {
         if (confirm(`⚠️ 경고: ${currentClass}반의 모든 등록 데이터와 투표 내역이 삭제됩니다. 정말 초기화하시겠습니까?`)) {
           setClassItems(prev => ({ ...prev, [currentClass]: [] }));
@@ -215,7 +274,6 @@
 
       return (
         <div className="min-h-screen pb-12">
-          {/* 상단 헤더 영역 */}
           <header className="bg-amber-100 border-b-2 border-amber-300 p-4 sticky top-0 z-50 shadow-md">
             <div className="max-w-6xl mx-auto flex flex-wrap justify-between items-center gap-4">
               <div className="flex items-center gap-3">
@@ -225,7 +283,6 @@
                 </h1>
               </div>
 
-              {/* 반 선택 버튼 (1반~13반) */}
               <div className="flex items-center gap-1 bg-white p-1 rounded-lg border border-amber-300 overflow-x-auto max-w-full">
                 <span className="font-bold text-xs text-amber-800 px-2 whitespace-nowrap">학급:</span>
                 {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13].map(num => (
@@ -234,6 +291,7 @@
                     onClick={() => {
                       setCurrentClass(num);
                       setMyVotes({ sendAway: [], mysterious: [], cute: [] });
+                      resetForm();
                     }}
                     className={`px-2 py-1 text-xs rounded-md font-bold transition whitespace-nowrap ${
                       currentClass === num
@@ -246,7 +304,6 @@
                 ))}
               </div>
 
-              {/* 선생님 버튼 (초기화 버튼은 학생 화면에서 삭제됨!) */}
               <div className="flex items-center gap-2">
                 {viewMode === 'student' ? (
                   <button
@@ -271,7 +328,6 @@
           </header>
 
           <main className="max-w-6xl mx-auto p-4 mt-4">
-            {/* 교사 로그인 화면 */}
             {viewMode === 'teacher_login' && !teacherAuthed && (
               <div className="max-w-md mx-auto bg-white p-8 rounded-2xl shadow-xl border-2 border-purple-200 mt-12 text-center">
                 <div className="text-5xl mb-4">🔐</div>
@@ -296,7 +352,6 @@
               </div>
             )}
 
-            {/* 교사 시상식 페이지 (초기화 버튼은 여기에만 위치!) */}
             {viewMode === 'teacher' && teacherAuthed && (
               <div>
                 <div className="flex justify-between items-center mb-6 bg-white p-4 rounded-xl shadow border">
@@ -353,7 +408,6 @@
               </div>
             )}
 
-            {/* 학생 페이지 */}
             {viewMode === 'student' && (
               <div>
                 <div className="flex border-b-2 border-amber-200 mb-6 bg-white rounded-t-xl overflow-hidden shadow-sm">
@@ -365,7 +419,7 @@
                         : 'text-gray-600 hover:bg-amber-50'
                     }`}
                   >
-                    1단계: 내 고물 등록하기 📝
+                    1단계: 내 고물 등록/수정하기 📝
                   </button>
                   <button
                     onClick={() => setStudentStep(2)}
@@ -379,12 +433,22 @@
                   </button>
                 </div>
 
-                {/* 1단계: 등록 */}
                 {studentStep === 1 && (
                   <div className="bg-white p-6 rounded-2xl shadow-md border border-amber-200 max-w-2xl mx-auto">
-                    <h2 className="text-2xl font-black font-jua text-amber-900 mb-4 text-center">
-                      ✨ 나의 소중한 고물 자랑글 작성하기
-                    </h2>
+                    <div className="flex justify-between items-center mb-4">
+                      <h2 className="text-2xl font-black font-jua text-amber-900">
+                        {editingId ? '✏️ 내 고물 자랑글 수정하기' : '✨ 나의 소중한 고물 자랑글 작성하기'}
+                      </h2>
+                      {editingId && (
+                        <button
+                          onClick={resetForm}
+                          className="text-xs bg-gray-200 hover:bg-gray-300 text-gray-700 font-bold px-3 py-1.5 rounded-lg"
+                        >
+                          ❌ 수정 취소
+                        </button>
+                      )}
+                    </div>
+
                     <form onSubmit={handleSubmit} className="space-y-6">
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div>
@@ -475,15 +539,16 @@
 
                       <button
                         type="submit"
-                        className="w-full bg-amber-500 hover:bg-amber-600 text-white font-bold py-3 rounded-xl shadow-md font-jua text-lg transition"
+                        className={`w-full text-white font-bold py-3 rounded-xl shadow-md font-jua text-lg transition ${
+                          editingId ? 'bg-blue-600 hover:bg-blue-700' : 'bg-amber-500 hover:bg-amber-600'
+                        }`}
                       >
-                        자랑 목록에 등록하기 🚀
+                        {editingId ? '수정사항 완료하기 ✏️' : '자랑 목록에 등록하기 🚀'}
                       </button>
                     </form>
                   </div>
                 )}
 
-                {/* 2단계: 목록 및 투표 */}
                 {studentStep === 2 && (
                   <div>
                     <div className="bg-amber-100 border border-amber-300 p-4 rounded-xl mb-6 flex flex-wrap justify-between items-center gap-3">
@@ -519,6 +584,7 @@
                           const isSendAway = myVotes.sendAway.includes(item.id);
                           const isMysterious = myVotes.mysterious.includes(item.id);
                           const isCute = myVotes.cute.includes(item.id);
+                          const isMyOwnItem = myCreatedItemIds.includes(item.id);
 
                           return (
                             <div key={item.id} className="bg-white rounded-2xl shadow-md border overflow-hidden flex flex-col justify-between">
@@ -528,6 +594,25 @@
                                   <span className="absolute top-2 right-2 bg-black/60 text-white text-xs px-2 py-1 rounded-full font-bold">
                                     발표자: {item.studentName}
                                   </span>
+
+                                  {isMyOwnItem && (
+                                    <div className="absolute top-2 left-2 flex gap-1">
+                                      <button
+                                        onClick={() => handleEditStart(item)}
+                                        className="bg-white/90 hover:bg-white text-gray-800 text-xs px-2 py-1 rounded-lg font-bold shadow transition"
+                                        title="내 글 수정하기"
+                                      >
+                                        ✏️ 수정
+                                      </button>
+                                      <button
+                                        onClick={() => handleDeleteItem(item.id)}
+                                        className="bg-rose-500/90 hover:bg-rose-600 text-white text-xs px-2 py-1 rounded-lg font-bold shadow transition"
+                                        title="내 글 삭제하기"
+                                      >
+                                        🗑️
+                                      </button>
+                                    </div>
+                                  )}
                                 </div>
                                 <div className="p-4">
                                   <h3 className="text-lg font-bold font-jua text-gray-800 mb-1">{item.itemName}</h3>
